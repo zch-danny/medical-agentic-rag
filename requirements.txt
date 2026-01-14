@@ -43,6 +43,10 @@ llama-index-embeddings-huggingface>=0.1.0
 # DSPy (Prompt Optimization)
 dspy-ai>=2.4.0
 
+# RAG Evaluation
+deepeval>=2.0.0
+datasets>=2.0.0
+
 # Optional: Gradio Frontend
 # gradio>=4.0.0
 
