@@ -135,7 +135,8 @@ class QueryRouter:
         
         # 3. 检查是否需要精确匹配
         exact_score = self._calc_exact_match_score(query_lower)
-        if exact_score > 0.6:
+        # 当精确匹配得分达到阈值（含边界）时，优先使用 BM25
+        if exact_score >= 0.6:
             return RouteDecision(
                 query_type=QueryType.BM25,
                 confidence=exact_score,
@@ -181,8 +182,8 @@ class QueryRouter:
         """计算精确匹配得分"""
         score = 0.0
         
-        # 检查医学缩写
-        words = set(re.findall(r'\b\w+\b', query))
+        # 检查医学缩写（在中英混排文本中，使用 ASCII 词提取更稳健）
+        words = set(re.findall(r'[A-Za-z0-9]+', query))
         medical_term_count = len(words & self.MEDICAL_TERMS)
         if medical_term_count > 0:
             score += 0.3 * min(medical_term_count, 2)
@@ -193,8 +194,13 @@ class QueryRouter:
                 score += 0.3
                 break
         
-        # 检查数字（可能是剂量、指标等）
-        if re.search(r'\d+\s*(mg|ml|g|kg|mmol|umol|%)', query):
+        # 检查单位（即便没有数字）如 mg/ml/% 等，强指示需要精确匹配
+        # 使用前后否定预查，避免与 ASCII 字母/数字相连时误判，同时兼容中英文混排
+        if re.search(r'(?<![A-Za-z0-9])(mg|ml|g|kg|mmol|umol|%)(?![A-Za-z0-9])', query):
+            score += 0.3
+        
+        # 检查数字+单位（剂量、指标等）
+        if re.search(r'\d+\s*(?:mg|ml|g|kg|mmol|umol|%)', query):
             score += 0.2
         
         return min(score, 1.0)

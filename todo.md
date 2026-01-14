@@ -13,11 +13,13 @@
 - [ ] 准备 GPU 服务器（推荐 RTX 4090 24GB 或 A100）
 
 ### 系统健壮性
-- [ ] 文件状态持久化（当前重启后丢失）
-  - 方案：SQLite + SQLAlchemy
-  - 表结构：documents(id, filename, status, chunk_count, created_at)
-- [ ] API 认证（Token / API Key）
-  - JWT 或简单 API Key 方案
+- [x] 文件状态持久化
+  - SQLite + SQLAlchemy 已实现
+  - src/database.py: Document 模型 + CRUD 操作
+  - 支持切换 PostgreSQL/MySQL
+- [x] API 认证（API Key）
+  - src/auth.py: API Key 验证中间件
+  - 支持环境变量和数据库两种模式
 - [ ] 增量索引
   - 只索引新增/修改的文档
   - 基于文件哈希判断是否需要重新索引
@@ -114,7 +116,6 @@
 - [ ] jieba 的 pkg_resources 弃用警告（不影响功能）
 
 ### 限制
-- 文件注册表重启后清空（内存存储）-> 待持久化解决
 - 不支持 PDF 以外的文件格式
 - 单机部署，不支持分布式
 - 不支持多轮对话
@@ -144,11 +145,11 @@
 - [x] 元数据提取（标题/年份/DOI/关键词）
 - [x] RAG 评估框架（DeepEval + MIRAGE）
 
-### v1.1（计划）
-- 文件状态持久化（SQLite）
-- API 认证
-- 增量索引
-- 医疗同义词支持
+### v1.1（当前）
+- [x] 文件状态持久化（SQLite/SQLAlchemy）
+- [x] API 认证（API Key）
+- [ ] 增量索引
+- [ ] 医疗同义词支持
 
 ### v1.2（计划）
 - 多轮对话支持

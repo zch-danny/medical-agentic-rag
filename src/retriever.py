@@ -1,11 +1,13 @@
 """
 检索器 - 整合嵌入、向量检索和重排序
 """
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from loguru import logger
 
 from .embedder import MedicalEmbedder
+from .embedding_cache import EmbeddingCache
 from .reranker import Qwen3Reranker
 from .vector_store import VectorStore
 
@@ -20,16 +22,20 @@ class MedicalRetriever:
         embedder: Optional[MedicalEmbedder] = None,
         vector_store: Optional[VectorStore] = None,
         reranker: Optional[Qwen3Reranker] = None,
+        use_cache: bool = True,
     ):
         """
         Args:
             config: 配置模块（如 config.settings）
             lazy_load: 是否延迟加载模型 (首次检索时加载)
             embedder/vector_store/reranker: 可注入，便于测试或自定义
+            use_cache: 是否启用嵌入缓存
         """
         self.config = config
         self._embedder = embedder
         self._reranker = reranker
+        self._use_cache = use_cache
+        self._embedding_cache: Optional[EmbeddingCache] = None
 
         # 向量库默认立即初始化（可通过注入替换）
         self.vector_store = vector_store or VectorStore(
@@ -47,7 +53,8 @@ class MedicalRetriever:
             self._embedder = MedicalEmbedder(
                 self.config.EMBEDDING_MODEL,
                 self.config.MEDICAL_INSTRUCT,
-                self.config.MAX_SEQ_LENGTH
+                self.config.MAX_SEQ_LENGTH,
+                expected_dim=self.config.EMBEDDING_DIM,
             )
         if self._reranker is None:
             self._reranker = Qwen3Reranker(
@@ -66,6 +73,36 @@ class MedicalRetriever:
         if self._reranker is None:
             self._load_models()
         return self._reranker
+
+    @property
+    def embedding_cache(self) -> Optional[EmbeddingCache]:
+        """获取嵌入缓存（延迟初始化）"""
+        if self._use_cache and self._embedding_cache is None:
+            cache_dir = getattr(self.config, "EMBEDDING_CACHE_DIR", None)
+            if cache_dir:
+                self._embedding_cache = EmbeddingCache(
+                    cache_dir=Path(cache_dir),
+                    model_id=self.embedder.model_id,
+                )
+        return self._embedding_cache
+
+    def _get_query_embedding(self, query: str) -> List[float]:
+        """获取查询嵌入（支持缓存）"""
+        cache = self.embedding_cache
+        if cache is not None:
+            cached = cache.get(query)
+            if cached is not None:
+                logger.debug("查询嵌入命中缓存")
+                return cached
+
+        # 计算嵌入
+        query_emb = self.embedder.encode_query(query)
+
+        # 存入缓存
+        if cache is not None:
+            cache.set(query, query_emb)
+
+        return query_emb
 
     def search(
         self,
@@ -91,9 +128,9 @@ class MedicalRetriever:
         top_k_val = top_k if top_k is not None else self.config.RERANK_TOP_K
         alpha_val = alpha if alpha is not None else getattr(self.config, "HYBRID_ALPHA", 0.7)
 
-        # 1. 查询嵌入
+        # 1. 查询嵌入（支持缓存）
         logger.debug(f"查询: {query[:50]}...")
-        query_emb = self.embedder.encode_query(query)
+        query_emb = self._get_query_embedding(query)
 
         # 2. 向量检索
         default_candidate = self.config.TOP_K if use_rerank else top_k_val

@@ -151,8 +151,32 @@ Datasets: MMLU-Med, MedQA, MedMCQA, PubMedQA, BioASQ
 - `data/cache/embeddings/` - Embedding cache
 - `data/evaluation/` - Test datasets and MIRAGE benchmark
 
+## Database & Authentication
+
+### SQLite Persistence
+File state is persisted via SQLAlchemy. Database auto-initializes on API startup.
+- Default: `data/app.db` (SQLite)
+- Switch to PostgreSQL/MySQL by changing `DATABASE_URL` in `.env`
+
+### API Key Authentication
+Protected endpoints require API Key when enabled.
+```bash
+# Enable via environment:
+API_KEYS=sk-xxx,sk-yyy  # comma-separated
+API_AUTH_ENABLED=true   # optional, force auth even without keys
+
+# Usage:
+curl -H "X-API-Key: sk-xxx" http://localhost:8000/files
+curl "http://localhost:8000/search?q=test&api_key=sk-xxx"
+```
+
+Key modules:
+- `src/database.py` - SQLAlchemy models (Document, APIKey) and CRUD operations
+- `src/auth.py` - FastAPI dependency for API Key validation
+
 ## Environment Setup
 1. Copy `.env.example` to `.env`
 2. Configure model paths (local) or HuggingFace model names (auto-download)
 3. Set LLM API key for answer generation (optional)
 4. For DeepEval: `pip install deepeval` and optionally set `CONFIDENT_API_KEY` for web dashboard
+5. (Optional) Set `API_KEYS` for API authentication

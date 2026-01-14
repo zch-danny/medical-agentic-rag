@@ -35,11 +35,23 @@ MAX_SEQ_LENGTH = _get_env("MAX_SEQ_LENGTH", "8192", int)
 # ===================
 # 分块配置
 # ===================
+# 分块策略: markdown, semantic, recursive, fixed
+# - markdown: 利用 Markdown 结构（标题/段落）智能分块（推荐）
+# - semantic: 基于句子嵌入相似度分块
+# - recursive: 递归分块（按分隔符层级切分）
+# - fixed: 固定大小滑窗（旧版本默认）
+CHUNKING_STRATEGY = _get_env("CHUNKING_STRATEGY", "markdown")
+
 # CHUNK_SIZE: 字符数（不是 token）
 # 医学文献建议 512 字符，约等于 200-300 中文 token
 # 太大会稀释语义，太小会丢失上下文
 CHUNK_SIZE = _get_env("CHUNK_SIZE", "512", int)
 CHUNK_OVERLAP = _get_env("CHUNK_OVERLAP", "64", int)
+CHUNK_MIN_SIZE = _get_env("CHUNK_MIN_SIZE", "100", int)
+CHUNK_MAX_SIZE = _get_env("CHUNK_MAX_SIZE", "1500", int)
+
+# 语义分块参数
+SEMANTIC_THRESHOLD = _get_env("SEMANTIC_THRESHOLD", "0.5", float)
 
 # ===================
 # 检索配置
@@ -101,6 +113,22 @@ LLM_MODEL = _get_env("LLM_MODEL", "deepseek-chat")
 # MinerU 配置
 # ===================
 MINERU_BACKEND = _get_env("MINERU_BACKEND", "hybrid-auto-engine")
+
+# ===================
+# Contextual Retrieval 配置
+# ===================
+# 是否启用 Contextual Retrieval（为每个块添加上下文说明）
+CONTEXTUAL_ENABLED = _get_env("CONTEXTUAL_ENABLED", "false", bool)
+
+# Contextual LLM 配置（默认复用主 LLM 配置）
+CONTEXT_LLM_API_KEY = _get_env("CONTEXT_LLM_API_KEY", "") or _get_env("LLM_API_KEY", "")
+CONTEXT_LLM_BASE_URL = _get_env("CONTEXT_LLM_BASE_URL", "") or _get_env("LLM_BASE_URL", "")
+CONTEXT_LLM_MODEL = _get_env("CONTEXT_LLM_MODEL", "qwen3-8b")
+
+# 上下文生成参数
+CONTEXT_MAX_TOKENS = _get_env("CONTEXT_MAX_TOKENS", "150", int)  # 上下文最大 token
+CONTEXT_MAX_DOC_TOKENS = _get_env("CONTEXT_MAX_DOC_TOKENS", "6000", int)  # 文档最大 token
+CONTEXT_MAX_WORKERS = _get_env("CONTEXT_MAX_WORKERS", "4", int)  # 并行处理数
 
 # ===================
 # 性能配置
@@ -179,8 +207,20 @@ settings = SimpleNamespace(
     MEDICAL_INSTRUCT=MEDICAL_INSTRUCT,
     RERANKER_INSTRUCT=RERANKER_INSTRUCT,
     # chunking
+    CHUNKING_STRATEGY=CHUNKING_STRATEGY,
     CHUNK_SIZE=CHUNK_SIZE,
     CHUNK_OVERLAP=CHUNK_OVERLAP,
+    CHUNK_MIN_SIZE=CHUNK_MIN_SIZE,
+    CHUNK_MAX_SIZE=CHUNK_MAX_SIZE,
+    SEMANTIC_THRESHOLD=SEMANTIC_THRESHOLD,
+    # contextual retrieval
+    CONTEXTUAL_ENABLED=CONTEXTUAL_ENABLED,
+    CONTEXT_LLM_API_KEY=CONTEXT_LLM_API_KEY,
+    CONTEXT_LLM_BASE_URL=CONTEXT_LLM_BASE_URL,
+    CONTEXT_LLM_MODEL=CONTEXT_LLM_MODEL,
+    CONTEXT_MAX_TOKENS=CONTEXT_MAX_TOKENS,
+    CONTEXT_MAX_DOC_TOKENS=CONTEXT_MAX_DOC_TOKENS,
+    CONTEXT_MAX_WORKERS=CONTEXT_MAX_WORKERS,
     # retrieval
     TOP_K=TOP_K,
     RERANK_TOP_K=RERANK_TOP_K,
