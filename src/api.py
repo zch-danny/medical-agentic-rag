@@ -3,21 +3,36 @@ FastAPI 服务 - 文件上传与检索 API
 """
 import shutil
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 
 from config.settings import settings
+from src.auth import require_api_key
+from src.database import Database, DocumentStatus, get_database, init_database
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理"""
+    # 启动时初始化数据库
+    init_database()
+    logger.info("数据库已初始化")
+    yield
+    # 关闭时清理（如有需要）
+
 
 app = FastAPI(
     title="医疗文献 RAG API",
     description="文件上传、索引、检索服务",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # CORS 配置
@@ -97,17 +112,11 @@ class HealthResponse(BaseModel):
     services: dict
 
 
-# ============== 全局状态 ==============
+# ============== 数据库依赖 ==============
 
-# 简单的文件状态追踪（生产环境应用数据库）
-_file_registry: dict = {}  # file_id -> {filename, path, status}
-
-
-def _get_file_path(file_id: str) -> Optional[Path]:
-    """根据 file_id 获取文件路径"""
-    if file_id in _file_registry:
-        return Path(_file_registry[file_id]["path"])
-    return None
+def get_db() -> Database:
+    """获取数据库实例"""
+    return get_database()
 
 
 # ============== API 端点 ==============
@@ -127,7 +136,11 @@ async def health_check():
 
 
 @app.post("/upload", response_model=UploadResponse, tags=["文件管理"])
-async def upload_file(file: UploadFile = File(..., description="PDF 文件")):
+async def upload_file(
+    file: UploadFile = File(..., description="PDF 文件"),
+    db: Database = Depends(get_db),
+    api_key: str = Depends(require_api_key),
+):
     """
     上传 PDF 文件
 
@@ -147,13 +160,14 @@ async def upload_file(file: UploadFile = File(..., description="PDF 文件")):
         with open(save_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
 
-        # 记录文件信息
-        _file_registry[file_id] = {
-            "filename": file.filename,
-            "path": str(save_path),
-            "status": "pending",
-            "size_bytes": save_path.stat().st_size,
-        }
+        # 记录文件信息到数据库
+        doc = db.create_document(
+            file_id=file_id,
+            filename=safe_filename,
+            original_filename=file.filename,
+            path=str(save_path),
+            size_bytes=save_path.stat().st_size,
+        )
 
         logger.info(f"文件上传成功: {file_id} -> {safe_filename}")
 
@@ -170,39 +184,53 @@ async def upload_file(file: UploadFile = File(..., description="PDF 文件")):
 
 
 @app.get("/files", response_model=List[DocumentInfo], tags=["文件管理"])
-async def list_files():
+async def list_files(
+    db: Database = Depends(get_db),
+    api_key: str = Depends(require_api_key),
+):
     """列出所有已上传的文件"""
-    result = []
-    for file_id, info in _file_registry.items():
-        result.append(
-            DocumentInfo(
-                file_id=file_id,
-                filename=info["filename"],
-                size_bytes=info.get("size_bytes", 0),
-                status=info["status"],
-            )
+    docs = db.list_documents()
+    return [
+        DocumentInfo(
+            file_id=doc.id,
+            filename=doc.original_filename or doc.filename,
+            size_bytes=doc.size_bytes or 0,
+            status=doc.status.value if doc.status else "pending",
         )
-    return result
+        for doc in docs
+    ]
 
 
 @app.delete("/files/{file_id}", tags=["文件管理"])
-async def delete_file(file_id: str):
+async def delete_file(
+    file_id: str,
+    db: Database = Depends(get_db),
+    api_key: str = Depends(require_api_key),
+):
     """删除指定文件"""
-    if file_id not in _file_registry:
+    doc = db.get_document(file_id)
+    if not doc:
         raise HTTPException(status_code=404, detail="文件不存在")
 
-    file_path = Path(_file_registry[file_id]["path"])
-    if file_path.exists():
-        file_path.unlink()
+    # 删除物理文件
+    if doc.path:
+        file_path = Path(doc.path)
+        if file_path.exists():
+            file_path.unlink()
 
-    del _file_registry[file_id]
+    # 从数据库删除
+    db.delete_document(file_id)
     logger.info(f"文件已删除: {file_id}")
 
     return {"success": True, "message": "文件已删除"}
 
 
 @app.post("/index", response_model=IndexResponse, tags=["索引"])
-async def index_documents(request: IndexRequest = None):
+async def index_documents(
+    request: IndexRequest = None,
+    db: Database = Depends(get_db),
+    api_key: str = Depends(require_api_key),
+):
     """
     索引文档到向量数据库
 
@@ -215,11 +243,12 @@ async def index_documents(request: IndexRequest = None):
 
     # 确定要索引的文件
     if request and request.file_ids:
-        file_ids = request.file_ids
+        docs = [db.get_document(fid) for fid in request.file_ids]
+        docs = [d for d in docs if d is not None]
     else:
-        file_ids = [fid for fid, info in _file_registry.items() if info["status"] == "pending"]
+        docs = db.list_documents(status=DocumentStatus.PENDING)
 
-    if not file_ids:
+    if not docs:
         return IndexResponse(
             success=True,
             indexed_count=0,
@@ -247,16 +276,14 @@ async def index_documents(request: IndexRequest = None):
     indexed_count = 0
     failed_count = 0
 
-    for file_id in file_ids:
-        if file_id not in _file_registry:
-            failed_count += 1
-            continue
-
-        file_info = _file_registry[file_id]
-        file_path = Path(file_info["path"])
+    for doc in docs:
+        # 更新状态为 INDEXING
+        db.update_document_status(doc.id, DocumentStatus.INDEXING)
+        
+        file_path = Path(doc.path)
 
         if not file_path.exists():
-            file_info["status"] = "failed"
+            db.update_document_status(doc.id, DocumentStatus.FAILED, error_message="文件不存在")
             failed_count += 1
             continue
 
@@ -269,7 +296,7 @@ async def index_documents(request: IndexRequest = None):
             )
 
             if not chunks:
-                file_info["status"] = "failed"
+                db.update_document_status(doc.id, DocumentStatus.FAILED, error_message="解析失败，无文本块")
                 failed_count += 1
                 continue
 
@@ -285,13 +312,14 @@ async def index_documents(request: IndexRequest = None):
             # 入库
             vector_store.insert(embeddings=embeddings, texts=texts, metadata=metadatas)
 
-            file_info["status"] = "indexed"
+            # 更新状态和 chunk 数量
+            db.update_document_status(doc.id, DocumentStatus.INDEXED, chunk_count=len(chunks))
             indexed_count += 1
-            logger.info(f"索引成功: {file_id}, {len(chunks)} 个文本块")
+            logger.info(f"索引成功: {doc.id}, {len(chunks)} 个文本块")
 
         except Exception as e:
-            logger.error(f"索引文件失败 {file_id}: {e}")
-            file_info["status"] = "failed"
+            logger.error(f"索引文件失败 {doc.id}: {e}")
+            db.update_document_status(doc.id, DocumentStatus.FAILED, error_message=str(e))
             failed_count += 1
 
     return IndexResponse(
@@ -303,7 +331,10 @@ async def index_documents(request: IndexRequest = None):
 
 
 @app.post("/search", response_model=SearchResponse, tags=["检索"])
-async def search(request: SearchRequest):
+async def search(
+    request: SearchRequest,
+    api_key: str = Depends(require_api_key),
+):
     """
     检索医疗文献
 
@@ -369,10 +400,12 @@ async def search_get(
     q: str = Query(..., min_length=1, description="查询文本"),
     top_k: int = Query(default=10, ge=1, le=100),
     alpha: float = Query(default=0.5, ge=0, le=1),
+    api_key: str = Depends(require_api_key),
 ):
     """GET 方式检索（简化参数）"""
     return await search(
-        SearchRequest(query=q, top_k=top_k, alpha=alpha, enable_generation=False)
+        SearchRequest(query=q, top_k=top_k, alpha=alpha, enable_generation=False),
+        api_key=api_key,
     )
 
 

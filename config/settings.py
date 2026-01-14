@@ -73,6 +73,18 @@ CACHE_DIR = DATA_DIR / "cache"
 EMBEDDING_CACHE_DIR = CACHE_DIR / "embeddings"
 
 # ===================
+# 数据库配置
+# ===================
+DATABASE_URL = _get_env("DATABASE_URL", f"sqlite:///{DATA_DIR}/app.db")
+
+# ===================
+# API 认证配置
+# ===================
+API_KEYS = _get_env("API_KEYS", "")  # 逗号分隔多个 Key
+API_AUTH_ENABLED = _get_env("API_AUTH_ENABLED", "false", bool)
+API_AUTH_USE_DB = _get_env("API_AUTH_USE_DB", "false", bool)  # 是否从数据库读取 Key
+
+# ===================
 # Milvus 配置
 # ===================
 MILVUS_URI = _get_env("MILVUS_URI", "http://127.0.0.1:19530")
@@ -153,6 +165,12 @@ settings = SimpleNamespace(
     CACHE_DIR=CACHE_DIR,
     EMBEDDING_CACHE_DIR=EMBEDDING_CACHE_DIR,
     LOG_DIR=LOG_DIR,
+    # database
+    DATABASE_URL=DATABASE_URL,
+    # api auth
+    API_KEYS=API_KEYS,
+    API_AUTH_ENABLED=API_AUTH_ENABLED,
+    API_AUTH_USE_DB=API_AUTH_USE_DB,
     # models
     EMBEDDING_MODEL=EMBEDDING_MODEL,
     RERANKER_MODEL=RERANKER_MODEL,

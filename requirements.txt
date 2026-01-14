@@ -47,8 +47,13 @@ dspy-ai>=2.4.0
 deepeval>=2.0.0
 datasets>=2.0.0
 
-# Optional: Gradio Frontend
-# gradio>=4.0.0
+# Database
+sqlalchemy>=2.0.0
+aiosqlite>=0.19.0  # async SQLite support
+
+# Gradio Frontend
+gradio>=4.0.0
+httpx>=0.24.0  # for PubMed API
 
 # Optional: Flash Attention (requires CUDA)
 # flash-attn>=2.0.0
