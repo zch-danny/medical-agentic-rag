@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: medical-rag
+    env_file:
+      - .env
+    environment:
+      - MILVUS_URI=http://milvus:19530
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ${EMBEDDING_MODEL_PATH:-./models/embedding}:/app/models/embedding:ro
+      - ${RERANKER_MODEL_PATH:-./models/reranker}:/app/models/reranker:ro
+    depends_on:
+      milvus:
+        condition: service_healthy
+    networks:
+      - medical-rag-net
+    restart: unless-stopped
+
+  milvus:
+    image: milvusdb/milvus:v2.5.0
+    container_name: milvus-standalone
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_USE_EMBED: "true"
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      ETCD_CONFIG_PATH: /milvus/configs/embedEtcd.yaml
+      COMMON_STORAGETYPE: local
+    volumes:
+      - milvus-data:/var/lib/milvus
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    networks:
+      - medical-rag-net
+    restart: unless-stopped
+
+networks:
+  medical-rag-net:
+    driver: bridge
+
+volumes:
+  milvus-data:

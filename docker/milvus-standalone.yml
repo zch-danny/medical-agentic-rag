@@ -1,0 +1,36 @@
+# Milvus 2.5 Standalone 单独部署配置
+# 用于仅启动 Milvus 而不启动应用服务
+#
+# 使用方法:
+#   docker-compose -f docker/milvus-standalone.yml up -d
+#
+version: '3.8'
+
+services:
+  milvus:
+    image: milvusdb/milvus:v2.5.0
+    container_name: milvus-standalone
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_USE_EMBED: "true"
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      ETCD_CONFIG_PATH: /milvus/configs/embedEtcd.yaml
+      COMMON_STORAGETYPE: local
+    volumes:
+      - milvus-data:/var/lib/milvus
+    ports:
+      - "19530:19530"   # gRPC/REST API
+      - "9091:9091"     # Metrics/Health
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    restart: unless-stopped
+
+volumes:
+  milvus-data:
+    driver: local
