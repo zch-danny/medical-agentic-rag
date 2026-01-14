@@ -105,6 +105,29 @@ LOG_LEVEL = _get_env("LOG_LEVEL", "INFO")
 LOG_DIR = BASE_DIR / "logs"
 
 # ===================
+# PubMed API 配置
+# ===================
+PUBMED_API_KEY = _get_env("PUBMED_API_KEY", "")  # NCBI API Key（可选）
+PUBMED_EMAIL = _get_env("PUBMED_EMAIL", "")  # 联系邮箱（推荐）
+PUBMED_MAX_RESULTS = _get_env("PUBMED_MAX_RESULTS", "20", int)
+PUBMED_TIMEOUT = _get_env("PUBMED_TIMEOUT", "30.0", float)
+
+# ===================
+# 缓存配置
+# ===================
+CACHE_DIR = DATA_DIR / "cache"
+CACHE_LRU_SIZE = _get_env("CACHE_LRU_SIZE", "1000", int)
+CACHE_TTL_DEFAULT = _get_env("CACHE_TTL_DEFAULT", "300.0", float)  # 5分钟
+CACHE_PERSISTENT_DIR = DATA_DIR / "cache" / "persistent"
+
+# ===================
+# 异步配置
+# ===================
+ASYNC_MAX_CONCURRENCY = _get_env("ASYNC_MAX_CONCURRENCY", "10", int)
+ASYNC_DEFAULT_TIMEOUT = _get_env("ASYNC_DEFAULT_TIMEOUT", "30.0", float)
+ASYNC_BATCH_SIZE = _get_env("ASYNC_BATCH_SIZE", "10", int)
+
+# ===================
 # 兼容字段别名
 # ===================
 # 历史/脚本中可能使用 MILVUS_COLLECTION
@@ -161,4 +184,17 @@ settings = SimpleNamespace(
     NUM_WORKERS=NUM_WORKERS,
     # logging
     LOG_LEVEL=LOG_LEVEL,
+    # pubmed
+    PUBMED_API_KEY=PUBMED_API_KEY,
+    PUBMED_EMAIL=PUBMED_EMAIL,
+    PUBMED_MAX_RESULTS=PUBMED_MAX_RESULTS,
+    PUBMED_TIMEOUT=PUBMED_TIMEOUT,
+    # cache
+    CACHE_LRU_SIZE=CACHE_LRU_SIZE,
+    CACHE_TTL_DEFAULT=CACHE_TTL_DEFAULT,
+    CACHE_PERSISTENT_DIR=CACHE_PERSISTENT_DIR,
+    # async
+    ASYNC_MAX_CONCURRENCY=ASYNC_MAX_CONCURRENCY,
+    ASYNC_DEFAULT_TIMEOUT=ASYNC_DEFAULT_TIMEOUT,
+    ASYNC_BATCH_SIZE=ASYNC_BATCH_SIZE,
 )

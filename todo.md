@@ -100,8 +100,11 @@
   - 敏感操作记录（删除文档、修改配置）
 
 ### 评估与测试
-- [ ] 构建医疗领域测试集
-- [ ] 检索效果评估（MRR、NDCG、Recall）
+- [x] 构建医疗领域测试集
+  - MIRAGE 基准数据集（7,663 题）
+  - 中英双语测试模板
+- [x] 检索效果评估（MRR、NDCG、Recall）
+- [x] DeepEval 端到端评估（Faithfulness、Relevancy、Precision）
 - [ ] A/B 测试不同 alpha 参数
 
 ## 已知问题
@@ -139,6 +142,7 @@
 - [x] REST API
 - [x] 文件上传
 - [x] 元数据提取（标题/年份/DOI/关键词）
+- [x] RAG 评估框架（DeepEval + MIRAGE）
 
 ### v1.1（计划）
 - 文件状态持久化（SQLite）

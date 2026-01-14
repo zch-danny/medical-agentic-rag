@@ -114,12 +114,45 @@ Retrieval results use this structure:
 }
 ```
 
+## RAG Evaluation
+
+Three-tier evaluation architecture for bilingual (Chinese/English) medical RAG:
+
+### Retrieval Evaluation (existing)
+```powershell
+python scripts/evaluate.py --test-file data/evaluation/test_queries.json --alpha 0.7
+```
+Metrics: MRR@K, Recall@K, NDCG@K
+
+### DeepEval End-to-End Evaluation
+```powershell
+pip install deepeval
+python scripts/evaluate_deepeval.py --test-file data/evaluation/test_queries_template.json
+python scripts/evaluate_deepeval.py --test-file data/evaluation/test_queries_template.json --metrics faithfulness relevancy precision
+```
+Metrics: Faithfulness (hallucination detection), Answer Relevancy, Contextual Precision/Recall
+
+### MIRAGE Medical Benchmark
+```powershell
+# Download benchmark (7,663 English medical QA questions)
+python scripts/evaluate_mirage.py --download
+
+# Quick test
+python scripts/evaluate_mirage.py --dataset mmlu --limit 50
+
+# Full evaluation with generation
+python scripts/evaluate_mirage.py --dataset all --use-generation
+```
+Datasets: MMLU-Med, MedQA, MedMCQA, PubMedQA, BioASQ
+
 ## Data Directories
 - `data/documents/` - Source PDF files
 - `data/parsed/` - MinerU parsed output
 - `data/cache/embeddings/` - Embedding cache
+- `data/evaluation/` - Test datasets and MIRAGE benchmark
 
 ## Environment Setup
 1. Copy `.env.example` to `.env`
 2. Configure model paths (local) or HuggingFace model names (auto-download)
 3. Set LLM API key for answer generation (optional)
+4. For DeepEval: `pip install deepeval` and optionally set `CONFIDENT_API_KEY` for web dashboard

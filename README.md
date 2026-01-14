@@ -9,6 +9,7 @@
 - 语义重排序
 - AI 答案生成（DeepSeek/OpenAI）
 - REST API 服务
+- RAG 评估框架（DeepEval + MIRAGE 医学基准）
 
 ## 项目结构
 
@@ -30,13 +31,16 @@ medical_embedding/
 ├── scripts/
 │   ├── index_documents.py
 │   ├── search.py
-│   └── evaluate.py
+│   ├── evaluate.py           # 检索指标评估
+│   ├── evaluate_deepeval.py  # DeepEval 端到端评估
+│   └── evaluate_mirage.py    # MIRAGE 医学基准评估
 ├── docker/
 │   └── milvus-standalone.yml
 ├── data/
 │   ├── documents/       # PDF 文件
 │   ├── parsed/          # 解析结果
-│   └── cache/           # 嵌入缓存
+│   ├── cache/           # 嵌入缓存
+│   └── evaluation/      # 评估数据集
 └── tests/
 ```
 
@@ -150,6 +154,34 @@ curl "http://localhost:8000/search?q=高血压治疗&top_k=5"
 
 ```powershell
 pytest tests/ -v
+```
+
+## 评估
+
+### 检索质量评估
+```powershell
+$env:PYTHONPATH = "D:\Project\medical_embedding"
+python scripts/evaluate.py --test-file data/evaluation/test_queries.json
+```
+
+### DeepEval 端到端评估
+评估 Faithfulness（幻觉检测）、Answer Relevancy、Context Precision 等指标：
+```powershell
+pip install deepeval
+python scripts/evaluate_deepeval.py --test-file data/evaluation/test_queries_template.json
+```
+
+### MIRAGE 医学基准评估
+使用 7,663 道英文医学问答题（MMLU-Med、MedQA、MedMCQA、PubMedQA、BioASQ）：
+```powershell
+# 下载基准数据
+python scripts/evaluate_mirage.py --download
+
+# 快速测试
+python scripts/evaluate_mirage.py --dataset mmlu --limit 50
+
+# 完整评估（含答案生成）
+python scripts/evaluate_mirage.py --dataset all --use-generation
 ```
 
 ## License

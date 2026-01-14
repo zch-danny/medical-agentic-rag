@@ -1,0 +1,62 @@
+[
+    {
+        "question": "What are the first-line treatments for type 2 diabetes mellitus?",
+        "ground_truth": "First-line treatments for type 2 diabetes typically include lifestyle modifications (diet and exercise) and metformin as the initial pharmacological therapy.",
+        "language": "en",
+        "category": "treatment"
+    },
+    {
+        "question": "What are the diagnostic criteria for hypertension according to current guidelines?",
+        "ground_truth": "Hypertension is diagnosed when systolic blood pressure is ≥130 mmHg or diastolic blood pressure is ≥80 mmHg, based on the average of two or more readings on two or more occasions.",
+        "language": "en",
+        "category": "diagnosis"
+    },
+    {
+        "question": "What is the mechanism of action of ACE inhibitors in treating heart failure?",
+        "ground_truth": "ACE inhibitors block the conversion of angiotensin I to angiotensin II, reducing vasoconstriction, decreasing aldosterone secretion, and improving cardiac output by reducing afterload and preload.",
+        "language": "en",
+        "category": "mechanism"
+    },
+    {
+        "question": "What are the common adverse effects of statin therapy?",
+        "ground_truth": "Common adverse effects of statins include myalgia, elevated liver enzymes, gastrointestinal symptoms, and rarely rhabdomyolysis and new-onset diabetes.",
+        "language": "en",
+        "category": "adverse_effects"
+    },
+    {
+        "question": "How is acute myocardial infarction diagnosed using biomarkers?",
+        "ground_truth": "Acute MI is diagnosed by elevated cardiac troponins (troponin I or T) above the 99th percentile of a normal reference population, with a rise and/or fall pattern and at least one clinical feature of ischemia.",
+        "language": "en",
+        "category": "diagnosis"
+    },
+    {
+        "question": "2型糖尿病的一线治疗药物是什么？",
+        "ground_truth": "2型糖尿病的一线治疗通常包括生活方式干预（饮食控制和运动）以及二甲双胍作为初始药物治疗。",
+        "language": "zh",
+        "category": "treatment"
+    },
+    {
+        "question": "高血压的诊断标准是什么？",
+        "ground_truth": "根据当前指南，收缩压≥130 mmHg或舒张压≥80 mmHg时诊断为高血压，需在两次或更多场合测量取平均值。",
+        "language": "zh",
+        "category": "diagnosis"
+    },
+    {
+        "question": "他汀类药物的常见不良反应有哪些？",
+        "ground_truth": "他汀类药物的常见不良反应包括肌痛、肝酶升高、胃肠道症状，罕见情况下可能出现横纹肌溶解和新发糖尿病。",
+        "language": "zh",
+        "category": "adverse_effects"
+    },
+    {
+        "question": "心肌肌钙蛋白在急性心肌梗死诊断中的作用是什么？",
+        "ground_truth": "心肌肌钙蛋白（cTnI或cTnT）是诊断急性心肌梗死的首选生物标志物，当其水平超过正常参考人群第99百分位数且呈动态变化时支持诊断。",
+        "language": "zh",
+        "category": "diagnosis"
+    },
+    {
+        "question": "阿司匹林在心血管疾病预防中的作用机制是什么？",
+        "ground_truth": "阿司匹林通过不可逆抑制血小板环氧化酶-1（COX-1），减少血栓素A2的合成，从而抑制血小板聚集，降低血栓形成风险。",
+        "language": "zh",
+        "category": "mechanism"
+    }
+]
