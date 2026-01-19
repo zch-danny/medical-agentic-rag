@@ -108,11 +108,14 @@ COLLECTION_NAME = _get_env("COLLECTION_NAME", "medical_literature")
 LLM_API_KEY = _get_env("LLM_API_KEY", "")
 LLM_BASE_URL = _get_env("LLM_BASE_URL", "https://api.deepseek.com")
 LLM_MODEL = _get_env("LLM_MODEL", "deepseek-chat")
+LLM_CONTEXT_MAX_CHARS = _get_env("LLM_CONTEXT_MAX_CHARS", "12000", int)
+LLM_CONTEXT_MAX_CHARS_PER_DOC = _get_env("LLM_CONTEXT_MAX_CHARS_PER_DOC", "2000", int)
 
 # ===================
 # MinerU 配置
 # ===================
 MINERU_BACKEND = _get_env("MINERU_BACKEND", "hybrid-auto-engine")
+MINERU_TIMEOUT_SECONDS = _get_env("MINERU_TIMEOUT_SECONDS", "300", int)
 
 # ===================
 # Contextual Retrieval 配置
@@ -233,8 +236,11 @@ settings = SimpleNamespace(
     LLM_API_KEY=LLM_API_KEY,
     LLM_BASE_URL=LLM_BASE_URL,
     LLM_MODEL=LLM_MODEL,
+    LLM_CONTEXT_MAX_CHARS=LLM_CONTEXT_MAX_CHARS,
+    LLM_CONTEXT_MAX_CHARS_PER_DOC=LLM_CONTEXT_MAX_CHARS_PER_DOC,
     # mineru
     MINERU_BACKEND=MINERU_BACKEND,
+    MINERU_TIMEOUT_SECONDS=MINERU_TIMEOUT_SECONDS,
     # perf
     BATCH_SIZE=BATCH_SIZE,
     RERANKER_BATCH_SIZE=RERANKER_BATCH_SIZE,

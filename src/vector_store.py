@@ -89,7 +89,7 @@ class VectorStore:
         # 定义字段
         fields = [
             FieldSchema(name="id", dtype=DataType.INT64, is_primary=True, auto_id=True),
-            FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=65535, enable_analyzer=True),
+            FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=65535),
             FieldSchema(name="original_text", dtype=DataType.VARCHAR, max_length=65535),
             FieldSchema(name="source", dtype=DataType.VARCHAR, max_length=512),
             FieldSchema(name="path", dtype=DataType.VARCHAR, max_length=1024),

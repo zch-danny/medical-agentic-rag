@@ -9,6 +9,15 @@ from loguru import logger
 from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+def _get_int_env(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
 
 @dataclass
 class GenerationConfig:
@@ -45,11 +54,27 @@ class AnswerGenerator:
         base_url: Optional[str] = None,
         model: Optional[str] = None,
         config: Optional[GenerationConfig] = None,
+        max_context_chars: Optional[int] = None,
+        max_context_chars_per_doc: Optional[int] = None,
     ):
         self.api_key = api_key or os.getenv("LLM_API_KEY")
         self.base_url = base_url or os.getenv("LLM_BASE_URL", "https://api.deepseek.com")
         self.model = model or os.getenv("LLM_MODEL", "deepseek-chat")
         self.config = config or GenerationConfig(model=self.model)
+        self.max_context_chars = (
+            max_context_chars
+            if max_context_chars is not None
+            else _get_int_env("LLM_CONTEXT_MAX_CHARS", 12000)
+        )
+        self.max_context_chars_per_doc = (
+            max_context_chars_per_doc
+            if max_context_chars_per_doc is not None
+            else _get_int_env("LLM_CONTEXT_MAX_CHARS_PER_DOC", 2000)
+        )
+        if self.max_context_chars is not None and self.max_context_chars <= 0:
+            self.max_context_chars = None
+        if self.max_context_chars_per_doc is not None and self.max_context_chars_per_doc <= 0:
+            self.max_context_chars_per_doc = None
 
         if not self.api_key:
             raise ValueError("LLM_API_KEY 未设置")
@@ -71,19 +96,58 @@ class AnswerGenerator:
             return float(v) if v is not None else 0.0
         except Exception:
             return 0.0
+    def _truncate_text(self, text: str, max_chars: Optional[int]) -> str:
+        """按字符数截断文本，确保长度不超过 max_chars"""
+        if max_chars is None or max_chars <= 0:
+            return text
+        if len(text) <= max_chars:
+            return text
+        if max_chars <= 1:
+            return text[:max_chars]
+        return text[: max_chars - 1].rstrip() + "…"
 
     def _format_context(self, documents: List[Dict]) -> str:
         """格式化检索结果为上下文"""
         context_parts: List[str] = []
+        sep = "\n\n---\n\n"
+        current_len = 0
         for i, doc in enumerate(documents, 1):
             entity = doc.get("entity", doc)
             text = entity.get("original_text") or entity.get("text", "")
             source = entity.get("source", "未知来源")
             score = self._get_score(doc)
+            if self.max_context_chars_per_doc:
+                text = self._truncate_text(text, self.max_context_chars_per_doc)
 
+            prefix = f"[文献{i}] 来源: {source} (相关度: {score:.4f})\n"
+            doc_str = prefix + text
+
+            if self.max_context_chars:
+                if context_parts:
+                    if current_len + len(sep) > self.max_context_chars:
+                        break
+                    context_parts.append(sep)
+                    current_len += len(sep)
+
+                remaining = self.max_context_chars - current_len
+                if remaining <= 0:
+                    break
+                if len(doc_str) > remaining:
+                    allowed_text = max(0, remaining - len(prefix))
+                    if allowed_text <= 0:
+                        break
+                    text = self._truncate_text(text, allowed_text)
+                    doc_str = prefix + text
+
+                context_parts.append(doc_str)
+                current_len += len(doc_str)
+            else:
+                if context_parts:
+                    context_parts.append(sep)
+                context_parts.append(doc_str)
             context_parts.append(f"[文献{i}] 来源: {source} (相关度: {score:.4f})\n{text}")
 
-        return "\n\n---\n\n".join(context_parts)
+        return "".join(context_parts)
 
     def _build_messages(self, query: str, context: str) -> List[Dict]:
         """构建消息列表"""

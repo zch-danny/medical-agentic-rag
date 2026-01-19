@@ -55,5 +55,10 @@ aiosqlite>=0.19.0  # async SQLite support
 gradio>=4.0.0
 httpx>=0.24.0  # for PubMed API
 
+# Paper2Figure (论文图表生成)
+python-pptx>=0.6.21  # PPTX 生成
+requests>=2.28.0     # 在线服务调用
+# cairosvg>=2.7.0    # 可选: SVG 转 PNG（需要 cairo 库）
+
 # Optional: Flash Attention (requires CUDA)
 # flash-attn>=2.0.0

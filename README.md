@@ -121,6 +121,9 @@ API 文档：http://localhost:8000/docs
 | `/index` | POST | 索引文件到向量库 |
 | `/search` | POST/GET | 检索文献 |
 | `/health` | GET | 健康检查 |
+| `/paper2figure` | POST | 生成论文图表（架构图/流程图等） |
+| `/paper2ppt` | POST | 从论文生成完整 PPT 演示文稿 |
+| `/ppt-polish` | POST | PPT 美化（配色/字体/页码） |
 
 ### 示例
 
@@ -182,6 +185,73 @@ python scripts/evaluate_mirage.py --dataset mmlu --limit 50
 
 # 完整评估（含答案生成）
 python scripts/evaluate_mirage.py --dataset all --use-generation
+```
+
+## Paper2Any 论文多模态输出
+
+自动从论文内容生成科研图表、PPT 演示文稿等。
+
+### Paper2Figure - 图表生成
+
+```powershell
+$env:PYTHONPATH = "D:\Project\medical_embedding"
+
+# 从 PDF 生成架构图
+python scripts/paper2figure.py --pdf paper.pdf --type architecture
+
+# 从文本生成流程图
+python scripts/paper2figure.py --text "本文提出了一种..." --type flowchart
+
+# 自动检测图表类型并生成多种格式
+python scripts/paper2figure.py --pdf paper.pdf --formats html,pptx,svg --preview
+```
+
+图表类型：`auto`（自动检测）、`architecture`（架构图）、`roadmap`（路线图）、`flowchart`（流程图）、`experiment`（数据图）
+
+### Paper2PPT - PPT 生成
+
+```powershell
+# 从 PDF 生成完整 PPT
+python scripts/paper2ppt.py --pdf paper.pdf --style academic
+
+# 从文本生成 PPT
+python scripts/paper2ppt.py --text "论文内容..." --style business
+
+# 指定输出路径
+python scripts/paper2ppt.py --pdf paper.pdf --output ./presentation.pptx
+```
+
+PPT 风格：`academic`（学术）、`business`（商务）、`modern`（现代）、`colorful`（多彩）
+
+### PPTPolish - PPT 美化
+
+```powershell
+# 美化已有 PPT
+python scripts/paper2ppt.py --polish input.pptx --color academic_blue --font professional
+
+# 查看可用配色方案
+python scripts/paper2ppt.py --list-schemes
+```
+
+配色方案：`academic_blue`、`modern_green`、`elegant_purple`、`business_navy`、`warm_orange`、`minimal_gray`
+
+### API 调用
+
+```bash
+# 生成图表
+curl -X POST "http://localhost:8000/paper2figure" \
+  -H "Content-Type: application/json" \
+  -d '{"content": "论文内容...", "figure_type": "architecture"}'
+
+# 生成 PPT
+curl -X POST "http://localhost:8000/paper2ppt" \
+  -H "Content-Type: application/json" \
+  -d '{"content": "论文内容...", "style": "academic"}'
+
+# 美化 PPT
+curl -X POST "http://localhost:8000/ppt-polish" \
+  -H "Content-Type: application/json" \
+  -d '{"pptx_path": "./output/presentation.pptx", "color_scheme": "modern_green"}'
 ```
 
 ## License

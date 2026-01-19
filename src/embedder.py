@@ -1,8 +1,14 @@
 """
 嵌入模型 - 基于 Qwen3-Embedding
+
+支持:
+- HuggingFace 模型 (Qwen/Qwen3-Embedding-8B)
+- 本地微调模型 (sentence-transformers 格式)
+- 本地微调模型 (transformers 格式)
 """
 import gc
-from typing import List, Optional
+from pathlib import Path
+from typing import List, Optional, Union
 
 import torch
 from loguru import logger
@@ -15,12 +21,26 @@ class EmbedderLoadError(Exception):
     pass
 
 
+def _is_sentence_transformers_model(model_path: Union[str, Path]) -> bool:
+    """检测是否为 sentence-transformers 格式的模型"""
+    model_path = Path(model_path)
+    if not model_path.exists():
+        return False
+    # sentence-transformers 模型包含 modules.json
+    return (model_path / "modules.json").exists()
+
+
 class MedicalEmbedder:
     """
     医疗文献嵌入模型
 
     使用 Qwen3-Embedding 生成文档和查询的嵌入向量
     支持自定义医疗领域指令
+    
+    支持加载:
+    - HuggingFace 模型 (如 Qwen/Qwen3-Embedding-8B)
+    - 本地微调模型 (sentence-transformers 格式)
+    - 本地微调模型 (transformers 格式)
     """
 
     def __init__(
@@ -33,7 +53,7 @@ class MedicalEmbedder:
     ):
         """
         Args:
-            model_name: HuggingFace 模型名称
+            model_name: HuggingFace 模型名称或本地路径
             instruction: 查询时的任务指令
             max_length: 最大序列长度
             device: 指定设备 ("cuda"/"cpu"/None=自动)
@@ -47,10 +67,60 @@ class MedicalEmbedder:
         self.max_length = max_length
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self._expected_dim = expected_dim
+        
+        # 标记是否使用 sentence-transformers
+        self._use_st = False
+        self._st_model = None
 
         logger.info(f"加载嵌入模型: {model_name}")
-
-        # 加载 tokenizer (带错误处理)
+        
+        # 检测模型类型并加载
+        if _is_sentence_transformers_model(model_name):
+            self._load_sentence_transformers_model(model_name)
+        else:
+            self._load_transformers_model(model_name)
+        
+        # 维度验证
+        if self._expected_dim is not None and self.embedding_dim != self._expected_dim:
+            logger.warning(
+                f"模型实际维度 {self.embedding_dim} 与期望维度 {self._expected_dim} 不匹配，"
+                "请检查 EMBEDDING_DIM 配置"
+            )
+    
+    def _load_sentence_transformers_model(self, model_path: str):
+        """
+        加载 sentence-transformers 格式的微调模型
+        """
+        try:
+            from sentence_transformers import SentenceTransformer
+        except ImportError:
+            raise EmbedderLoadError(
+                "加载 sentence-transformers 模型需要安装: pip install sentence-transformers"
+            )
+        
+        logger.info("检测到 sentence-transformers 格式模型")
+        
+        try:
+            self._st_model = SentenceTransformer(
+                model_path,
+                trust_remote_code=True,
+                device=self.device,
+            )
+            self._st_model.max_seq_length = self.max_length
+            self._use_st = True
+            
+            # 获取维度
+            self._embedding_dim = self._st_model.get_sentence_embedding_dimension()
+            logger.info(f"sentence-transformers 模型已加载，维度: {self._embedding_dim}")
+            
+        except Exception as e:
+            raise EmbedderLoadError(f"sentence-transformers 模型加载失败: {e}") from e
+    
+    def _load_transformers_model(self, model_name: str):
+        """
+        加载 transformers 格式的模型 (HuggingFace 或本地)
+        """
+        # 加载 tokenizer
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(
                 model_name, trust_remote_code=True
@@ -84,13 +154,6 @@ class MedicalEmbedder:
         self.model.eval()
         logger.info(f"嵌入模型已加载，维度: {self.model.config.hidden_size}")
 
-        # 维度验证
-        if self._expected_dim is not None and self.embedding_dim != self._expected_dim:
-            logger.warning(
-                f"模型实际维度 {self.embedding_dim} 与期望维度 {self._expected_dim} 不匹配，"
-                "请检查 EMBEDDING_DIM 配置"
-            )
-
     def _mean_pooling(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         """对 token 嵌入做 mean pooling"""
         mask_expanded = attention_mask.unsqueeze(-1).float()
@@ -110,7 +173,17 @@ class MedicalEmbedder:
         """
         # 格式化带指令的查询
         formatted = f"Instruct: {self.instruction}\nQuery: {query}"
+        
+        # 使用 sentence-transformers
+        if self._use_st:
+            embedding = self._st_model.encode(
+                formatted, 
+                normalize_embeddings=True,
+                convert_to_numpy=True,
+            )
+            return embedding.tolist()
 
+        # 使用 transformers
         inputs = self.tokenizer(
             [formatted],
             padding=True,
@@ -145,6 +218,18 @@ class MedicalEmbedder:
         Returns:
             嵌入向量列表
         """
+        # 使用 sentence-transformers
+        if self._use_st:
+            embeddings = self._st_model.encode(
+                documents,
+                batch_size=batch_size,
+                show_progress_bar=show_progress,
+                normalize_embeddings=True,
+                convert_to_numpy=True,
+            )
+            return embeddings.tolist()
+        
+        # 使用 transformers
         all_embeddings = []
 
         iterator = range(0, len(documents), batch_size)
@@ -203,6 +288,8 @@ class MedicalEmbedder:
     @property
     def embedding_dim(self) -> int:
         """返回嵌入维度"""
+        if self._use_st:
+            return self._embedding_dim
         return self.model.config.hidden_size
 
     @property

@@ -21,6 +21,7 @@ class RAGConfig:
     alpha: float = 0.5  # 混合检索权重 (0=纯BM25, 1=纯向量)
     candidate_top_k: int = 50  # 粗召回数量
     final_top_k: int = 10  # 重排序后返回数量
+    enable_rerank: bool = True  # 是否启用重排序
 
     # 生成参数
     enable_generation: bool = True
@@ -110,6 +111,7 @@ class MedicalRAGPipeline:
         alpha: Optional[float] = None,
         candidate_top_k: Optional[int] = None,
         final_top_k: Optional[int] = None,
+        enable_rerank: Optional[bool] = None,
     ) -> List[Dict]:
         """
         执行检索流程: Query Embedding → Hybrid Search → Rerank
@@ -119,6 +121,7 @@ class MedicalRAGPipeline:
             alpha: 混合检索权重，覆盖默认配置
             candidate_top_k: 粗召回数量，覆盖默认配置
             final_top_k: 最终返回数量，覆盖默认配置
+            enable_rerank: 是否启用重排序，覆盖默认配置
 
         Returns:
             重排序后的文档列表
@@ -126,9 +129,13 @@ class MedicalRAGPipeline:
         alpha = alpha if alpha is not None else self.config.alpha
         candidate_top_k = candidate_top_k or self.config.candidate_top_k
         final_top_k = final_top_k or self.config.final_top_k
+        enable_rerank = enable_rerank if enable_rerank is not None else self.config.enable_rerank
 
-        logger.info(f"检索开始: query={query[:50]}..., alpha={alpha}, "
-                    f"candidate_top_k={candidate_top_k}, final_top_k={final_top_k}")
+        logger.info(
+            f"检索开始: query={query[:50]}..., alpha={alpha}, "
+            f"candidate_top_k={candidate_top_k}, final_top_k={final_top_k}, "
+            f"enable_rerank={enable_rerank}"
+        )
 
         # Step 1: Query Embedding
         query_vector = self.embedder.encode_query(query)
@@ -147,15 +154,17 @@ class MedicalRAGPipeline:
             logger.warning("混合检索未返回结果")
             return []
 
-        # Step 3: Rerank
-        reranked = self.reranker.rerank(
-            query=query,
-            candidates=candidates,
-            top_k=final_top_k,
-        )
-        logger.info(f"重排序完成，返回 {len(reranked)} 个文档")
+        # Step 3: Rerank（可选）
+        if enable_rerank and len(candidates) > 1:
+            reranked = self.reranker.rerank(
+                query=query,
+                candidates=candidates,
+                top_k=final_top_k,
+            )
+            logger.info(f"重排序完成，返回 {len(reranked)} 个文档")
+            return reranked
 
-        return reranked
+        return candidates[:final_top_k]
 
     def query(
         self,
@@ -164,6 +173,7 @@ class MedicalRAGPipeline:
         candidate_top_k: Optional[int] = None,
         final_top_k: Optional[int] = None,
         enable_generation: Optional[bool] = None,
+        enable_rerank: Optional[bool] = None,
         stream: Optional[bool] = None,
     ) -> RAGResult:
         """
@@ -175,6 +185,7 @@ class MedicalRAGPipeline:
             candidate_top_k: 粗召回数量
             final_top_k: 最终返回数量
             enable_generation: 是否生成答案，覆盖默认配置
+            enable_rerank: 是否启用重排序，覆盖默认配置
             stream: 是否流式输出，覆盖默认配置
 
         Returns:
@@ -189,11 +200,13 @@ class MedicalRAGPipeline:
             alpha=alpha,
             candidate_top_k=candidate_top_k,
             final_top_k=final_top_k,
+            enable_rerank=enable_rerank,
         )
 
         alpha_val = alpha if alpha is not None else self.config.alpha
         candidate_val = candidate_top_k if candidate_top_k is not None else self.config.candidate_top_k
         final_val = final_top_k if final_top_k is not None else self.config.final_top_k
+        rerank_val = enable_rerank if enable_rerank is not None else self.config.enable_rerank
 
         result = RAGResult(
             query=query,
@@ -202,6 +215,7 @@ class MedicalRAGPipeline:
                 "alpha": alpha_val,
                 "candidate_top_k": candidate_val,
                 "final_top_k": final_val,
+                "enable_rerank": rerank_val,
                 "num_retrieved": len(documents),
             },
         )

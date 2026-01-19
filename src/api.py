@@ -4,6 +4,7 @@ FastAPI 服务 - 文件上传与检索 API
 import shutil
 import uuid
 from contextlib import asynccontextmanager
+from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional
 
@@ -112,6 +113,68 @@ class HealthResponse(BaseModel):
     services: dict
 
 
+# ============== Paper2Figure 数据模型 ==============
+
+class Paper2FigureRequest(BaseModel):
+    """Paper2Figure 请求"""
+    content: Optional[str] = Field(default=None, description="论文文本内容")
+    file_id: Optional[str] = Field(default=None, description="已上传的文件 ID")
+    figure_type: str = Field(default="auto", description="图表类型: auto, architecture, roadmap, flowchart, experiment")
+    title: Optional[str] = Field(default=None, description="图表标题")
+    output_formats: List[str] = Field(default=["html", "pptx"], description="输出格式: html, pptx, svg")
+
+
+class Paper2FigureResponse(BaseModel):
+    """Paper2Figure 响应"""
+    success: bool
+    title: str
+    figure_type: str
+    mermaid_code: str
+    outputs: dict = Field(default_factory=dict, description="生成的文件路径")
+    message: str
+
+
+# ============== Paper2PPT 数据模型 ==============
+
+class Paper2PPTRequest(BaseModel):
+    """Paper2PPT 请求"""
+    content: Optional[str] = Field(default=None, description="论文文本内容")
+    file_id: Optional[str] = Field(default=None, description="已上传的文件 ID")
+    title: Optional[str] = Field(default=None, description="PPT 标题")
+    style: str = Field(default="academic", description="风格: academic, business, modern, colorful")
+
+
+class Paper2PPTResponse(BaseModel):
+    """Paper2PPT 响应"""
+    success: bool
+    title: str
+    slide_count: int
+    output_path: str
+    message: str
+
+
+# ============== PPTPolish 数据模型 ==============
+
+class PPTPolishRequest(BaseModel):
+    """美化请求"""
+    file_id: Optional[str] = Field(default=None, description="已上传的 PPT 文件 ID")
+    pptx_path: Optional[str] = Field(default=None, description="PPT 文件路径")
+    mode: str = Field(default="full", description="美化模式: content, style, full")
+    color_scheme: str = Field(default="academic_blue", description="配色方案")
+    font_scheme: str = Field(default="professional", description="字体方案")
+    add_page_numbers: bool = Field(default=True, description="是否添加页码")
+
+
+class PPTPolishResponse(BaseModel):
+    """美化响应"""
+    success: bool
+    original_path: str
+    output_path: str
+    changes: List[str]
+    suggestions: List[str]
+    message: str
+
+
 # ============== 数据库依赖 ==============
 
 def get_db() -> Database:
@@ -119,10 +182,45 @@ def get_db() -> Database:
     return get_database()
 
 
+# ============== 核心组件缓存 ==============
+
+@lru_cache(maxsize=1)
+def get_embedder():
+    from src.embedder import MedicalEmbedder
+
+    return MedicalEmbedder(
+        model_name=settings.EMBEDDING_MODEL,
+        instruction=settings.MEDICAL_INSTRUCT,
+        max_length=settings.MAX_SEQ_LENGTH,
+        expected_dim=settings.EMBEDDING_DIM,
+    )
+
+
+@lru_cache(maxsize=1)
+def get_vector_store():
+    from src.vector_store import VectorStore
+
+    return VectorStore(
+        uri=settings.MILVUS_URI,
+        collection_name=settings.COLLECTION_NAME,
+        dim=settings.EMBEDDING_DIM,
+    )
+
+
+@lru_cache(maxsize=1)
+def get_pipeline():
+    from src.pipeline import MedicalRAGPipeline
+
+    return MedicalRAGPipeline(
+        embedder=get_embedder(),
+        vector_store=get_vector_store(),
+    )
+
+
 # ============== API 端点 ==============
 
 @app.get("/health", response_model=HealthResponse, tags=["系统"])
-async def health_check():
+def health_check():
     """健康检查"""
     from src.health import HealthChecker
 
@@ -136,7 +234,7 @@ async def health_check():
 
 
 @app.post("/upload", response_model=UploadResponse, tags=["文件管理"])
-async def upload_file(
+def upload_file(
     file: UploadFile = File(..., description="PDF 文件"),
     db: Database = Depends(get_db),
     api_key: str = Depends(require_api_key),
@@ -184,7 +282,7 @@ async def upload_file(
 
 
 @app.get("/files", response_model=List[DocumentInfo], tags=["文件管理"])
-async def list_files(
+def list_files(
     db: Database = Depends(get_db),
     api_key: str = Depends(require_api_key),
 ):
@@ -202,7 +300,7 @@ async def list_files(
 
 
 @app.delete("/files/{file_id}", tags=["文件管理"])
-async def delete_file(
+def delete_file(
     file_id: str,
     db: Database = Depends(get_db),
     api_key: str = Depends(require_api_key),
@@ -226,7 +324,7 @@ async def delete_file(
 
 
 @app.post("/index", response_model=IndexResponse, tags=["索引"])
-async def index_documents(
+def index_documents(
     request: IndexRequest = None,
     db: Database = Depends(get_db),
     api_key: str = Depends(require_api_key),
@@ -237,9 +335,7 @@ async def index_documents(
     如果不指定 file_ids，则索引所有状态为 pending 的文件。
     """
     from src.document_loader import MinerUDocumentLoader
-    from src.embedder import MedicalEmbedder
     from src.embedding_cache import EmbeddingCache
-    from src.vector_store import VectorStore
 
     # 确定要索引的文件
     if request and request.file_ids:
@@ -262,13 +358,12 @@ async def index_documents(
             backend=settings.MINERU_BACKEND,
             output_dir=str(settings.PARSED_DIR),
         )
-        embedder = MedicalEmbedder(
-            model_name=settings.EMBEDDING_MODEL,
-            instruction=settings.MEDICAL_INSTRUCT,
-            max_length=settings.MAX_SEQ_LENGTH,
+        embedder = get_embedder()
+        cache = EmbeddingCache(
+            cache_dir=settings.EMBEDDING_CACHE_DIR,
+            model_id=embedder.model_id,
         )
-        cache = EmbeddingCache(cache_dir=settings.EMBEDDING_CACHE_DIR)
-        vector_store = VectorStore()
+        vector_store = get_vector_store()
     except Exception as e:
         logger.error(f"初始化组件失败: {e}")
         raise HTTPException(status_code=500, detail=f"初始化失败: {str(e)}")
@@ -331,7 +426,7 @@ async def index_documents(
 
 
 @app.post("/search", response_model=SearchResponse, tags=["检索"])
-async def search(
+def search(
     request: SearchRequest,
     api_key: str = Depends(require_api_key),
 ):
@@ -340,20 +435,17 @@ async def search(
 
     支持混合检索（向量 + BM25）和可选的重排序。
     """
-    from src.pipeline import MedicalRAGPipeline, RAGConfig
 
     try:
-        config = RAGConfig(
-            alpha=request.alpha,
-            final_top_k=request.top_k,
-            enable_generation=request.enable_generation,
-            stream_output=False,
-        )
-        pipeline = MedicalRAGPipeline(config=config)
+        pipeline = get_pipeline()
 
         result = pipeline.query(
             query=request.query,
+            alpha=request.alpha,
+            final_top_k=request.top_k,
             enable_generation=request.enable_generation,
+            enable_rerank=request.enable_rerank,
+            stream=False,
         )
 
         # 转换结果格式
@@ -396,17 +488,270 @@ async def search(
 
 
 @app.get("/search", response_model=SearchResponse, tags=["检索"])
-async def search_get(
+def search_get(
     q: str = Query(..., min_length=1, description="查询文本"),
     top_k: int = Query(default=10, ge=1, le=100),
     alpha: float = Query(default=0.5, ge=0, le=1),
+    enable_rerank: bool = Query(default=True),
     api_key: str = Depends(require_api_key),
 ):
-    """GET 方式检索（简化参数）"""
-    return await search(
-        SearchRequest(query=q, top_k=top_k, alpha=alpha, enable_generation=False),
+    """​GET 方式检索（简化参数）"""
+    return search(
+        SearchRequest(
+            query=q,
+            top_k=top_k,
+            alpha=alpha,
+            enable_rerank=enable_rerank,
+            enable_generation=False,
+        ),
         api_key=api_key,
     )
+
+
+# ============== Paper2Figure 端点 ==============
+
+@app.post("/paper2figure", response_model=Paper2FigureResponse, tags=["Paper2Figure"])
+def generate_figure(
+    request: Paper2FigureRequest,
+    db: Database = Depends(get_db),
+    api_key: str = Depends(require_api_key),
+):
+    """
+    从论文内容生成图表
+
+    支持生成：
+    - 模型架构图 (architecture)
+    - 技术路线图 (roadmap)
+    - 流程图 (flowchart)
+    - 实验数据图 (experiment)
+    - 自动检测 (auto)
+
+    输出格式：HTML、PPTX、SVG
+    """
+    from src.paper2figure import Paper2Figure, FigureType, FigureRenderer
+
+    # 获取论文内容
+    content = request.content
+
+    if not content and request.file_id:
+        # 从已上传文件获取内容
+        doc = db.get_document(request.file_id)
+        if not doc:
+            raise HTTPException(status_code=404, detail="文件不存在")
+
+        # 加载已解析的文本
+        parsed_dir = settings.PARSED_DIR / doc.filename.replace(".pdf", "")
+        if parsed_dir.exists():
+            # 尝试读取解析结果
+            md_files = list(parsed_dir.glob("*.md"))
+            if md_files:
+                content = md_files[0].read_text(encoding="utf-8")
+
+        if not content:
+            # 如果没有解析结果，尝试直接解析 PDF
+            from src.document_loader import MinerUDocumentLoader
+            loader = MinerUDocumentLoader()
+            chunks = loader.load(doc.path, chunk_size=10000, chunk_overlap=0)
+            if chunks:
+                content = "\n\n".join(c["text"] for c in chunks)
+
+    if not content:
+        raise HTTPException(status_code=400, detail="请提供论文内容或文件 ID")
+
+    try:
+        # 初始化 Paper2Figure
+        p2f = Paper2Figure()
+
+        # 解析图表类型
+        figure_type = FigureType(request.figure_type) if request.figure_type in [e.value for e in FigureType] else FigureType.AUTO
+
+        # 生成图表
+        result = p2f.generate(content, figure_type, request.title)
+
+        # 渲染输出
+        renderer = FigureRenderer(output_dir=settings.DATA_DIR / "paper2figure")
+        outputs = renderer.render_all(result, formats=request.output_formats)
+
+        return Paper2FigureResponse(
+            success=True,
+            title=result.title,
+            figure_type=result.figure_type.value,
+            mermaid_code=result.mermaid_code,
+            outputs=outputs,
+            message="图表生成成功",
+        )
+
+    except Exception as e:
+        logger.error(f"Paper2Figure 失败: {e}")
+        raise HTTPException(status_code=500, detail=f"图表生成失败: {str(e)}")
+
+
+@app.post("/paper2figure/from-text", response_model=Paper2FigureResponse, tags=["Paper2Figure"])
+def generate_figure_from_text(
+    content: str = Query(..., min_length=100, description="论文文本内容"),
+    figure_type: str = Query(default="auto", description="图表类型"),
+    title: Optional[str] = Query(default=None, description="图表标题"),
+    api_key: str = Depends(require_api_key),
+):
+    """从文本内容生成图表（简化接口）"""
+    return generate_figure(
+        Paper2FigureRequest(content=content, figure_type=figure_type, title=title),
+        db=get_db(),
+        api_key=api_key,
+    )
+
+
+# ============== Paper2PPT 端点 ==============
+
+@app.post("/paper2ppt", response_model=Paper2PPTResponse, tags=["Paper2PPT"])
+def generate_ppt(
+    request: Paper2PPTRequest,
+    db: Database = Depends(get_db),
+    api_key: str = Depends(require_api_key),
+):
+    """
+    从论文内容生成完整 PPT 演示文稿
+
+    支持风格：
+    - academic: 学术风格（默认）
+    - business: 商务风格
+    - modern: 现代简约
+    - colorful: 多彩活泼
+    """
+    from src.paper2figure import Paper2PPT, PPTStyle
+
+    # 获取论文内容
+    content = request.content
+
+    if not content and request.file_id:
+        doc = db.get_document(request.file_id)
+        if not doc:
+            raise HTTPException(status_code=404, detail="文件不存在")
+
+        # 加载已解析的文本
+        parsed_dir = settings.PARSED_DIR / doc.filename.replace(".pdf", "")
+        if parsed_dir.exists():
+            md_files = list(parsed_dir.glob("*.md"))
+            if md_files:
+                content = md_files[0].read_text(encoding="utf-8")
+
+        if not content:
+            from src.document_loader import MinerUDocumentLoader
+            loader = MinerUDocumentLoader()
+            chunks = loader.load(doc.path, chunk_size=10000, chunk_overlap=0)
+            if chunks:
+                content = "\n\n".join(c["text"] for c in chunks)
+
+    if not content:
+        raise HTTPException(status_code=400, detail="请提供论文内容或文件 ID")
+
+    try:
+        p2ppt = Paper2PPT()
+
+        # 解析风格
+        style = PPTStyle(request.style) if request.style in [e.value for e in PPTStyle] else PPTStyle.ACADEMIC
+
+        # 生成 PPT
+        output_dir = settings.DATA_DIR / "paper2ppt"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        safe_title = "".join(c for c in (request.title or "presentation") if c.isalnum() or c in " _-")[:50]
+        output_path = output_dir / f"{safe_title}.pptx"
+
+        ppt_content = p2ppt.analyze(content, request.title)
+        result_path = p2ppt.generate_pptx(ppt_content, output_path, style)
+
+        return Paper2PPTResponse(
+            success=True,
+            title=ppt_content.title,
+            slide_count=len(ppt_content.slides),
+            output_path=result_path,
+            message="PPT 生成成功",
+        )
+
+    except Exception as e:
+        logger.error(f"Paper2PPT 失败: {e}")
+        raise HTTPException(status_code=500, detail=f"PPT 生成失败: {str(e)}")
+
+
+# ============== PPTPolish 端点 ==============
+
+@app.post("/ppt-polish", response_model=PPTPolishResponse, tags=["PPTPolish"])
+def polish_ppt(
+    request: PPTPolishRequest,
+    api_key: str = Depends(require_api_key),
+):
+    """
+    美化 PPT
+
+    功能：
+    - 内容优化：精炼文字、统一风格
+    - 样式美化：调整配色、字体
+    - 添加页码
+
+    配色方案：academic_blue, modern_green, elegant_purple, business_navy, warm_orange, minimal_gray
+    字体方案：professional, elegant, modern
+    """
+    from src.paper2figure import PPTPolish, PolishMode
+
+    # 确定 PPT 文件路径
+    pptx_path = request.pptx_path
+
+    if not pptx_path and request.file_id:
+        # 从 paper2ppt 输出目录查找
+        output_dir = settings.DATA_DIR / "paper2ppt"
+        # 简化：查找最新的 pptx 文件
+        pptx_files = list(output_dir.glob("*.pptx"))
+        if pptx_files:
+            pptx_path = str(max(pptx_files, key=lambda p: p.stat().st_mtime))
+
+    if not pptx_path:
+        raise HTTPException(status_code=400, detail="请提供 PPT 文件路径或文件 ID")
+
+    from pathlib import Path
+    if not Path(pptx_path).exists():
+        raise HTTPException(status_code=404, detail=f"PPT 文件不存在: {pptx_path}")
+
+    try:
+        polisher = PPTPolish()
+
+        # 解析美化模式
+        mode = PolishMode(request.mode) if request.mode in [e.value for e in PolishMode] else PolishMode.FULL
+
+        # 执行美化
+        result = polisher.polish(
+            pptx_path,
+            mode=mode,
+            color_scheme=request.color_scheme,
+            font_scheme=request.font_scheme,
+            add_numbers=request.add_page_numbers,
+        )
+
+        return PPTPolishResponse(
+            success=True,
+            original_path=result.original_path,
+            output_path=result.output_path,
+            changes=result.changes,
+            suggestions=result.suggestions,
+            message="PPT 美化完成",
+        )
+
+    except Exception as e:
+        logger.error(f"PPTPolish 失败: {e}")
+        raise HTTPException(status_code=500, detail=f"PPT 美化失败: {str(e)}")
+
+
+@app.get("/ppt-polish/schemes", tags=["PPTPolish"])
+def list_polish_schemes(
+    api_key: str = Depends(require_api_key),
+):
+    """列出可用的配色和字体方案"""
+    from src.paper2figure import PPTPolish
+
+    return {
+        "color_schemes": PPTPolish.list_color_schemes(),
+        "font_schemes": PPTPolish.list_font_schemes(),
+    }
 
 
 # ============== 启动入口 ==============

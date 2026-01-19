@@ -6,6 +6,7 @@
 - 高级分块策略（Markdown感知/语义/递归）
 - Contextual Retrieval（上下文增强）
 """
+import os
 import re
 import subprocess
 from datetime import datetime
@@ -26,6 +27,14 @@ from src.chunker import (
     create_chunker,
 )
 from src.contextual import ContextualEnricher, create_contextual_enricher
+def _get_int_env(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
 
 
 def extract_metadata_from_text(text: str, filename: str) -> Dict:
@@ -113,6 +122,7 @@ class MinerUDocumentLoader:
         chunk_config: Optional[ChunkConfig] = None,
         contextual_enricher: Optional[ContextualEnricher] = None,
         embedding_fn: Optional[Callable[[List[str]], np.ndarray]] = None,
+        timeout_seconds: Optional[int] = None,
     ):
         """
         Args:
@@ -126,6 +136,11 @@ class MinerUDocumentLoader:
         self.backend = backend
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        if timeout_seconds is None:
+            timeout_seconds = _get_int_env("MINERU_TIMEOUT_SECONDS", 300)
+        if timeout_seconds is not None and timeout_seconds <= 0:
+            timeout_seconds = None
+        self.timeout_seconds = timeout_seconds
         
         # 分块策略
         if isinstance(chunking_strategy, str):
@@ -143,7 +158,10 @@ class MinerUDocumentLoader:
         # 上下文增强器
         self._contextual_enricher = contextual_enricher
         
-        logger.info(f"MinerUDocumentLoader 初始化: backend={backend}, chunking={chunking_strategy.value}")
+        logger.info(
+            f"MinerUDocumentLoader 初始化: backend={backend}, "
+            f"chunking={chunking_strategy.value}, timeout={self.timeout_seconds}s"
+        )
 
     def load_file(self, file_path: str) -> Optional[Dict]:
         """
@@ -167,7 +185,13 @@ class MinerUDocumentLoader:
                 "-b", self.backend,
             ]
             logger.debug(f"执行命令: {' '.join(cmd)}")
-            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            subprocess.run(
+                cmd,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout_seconds,
+            )
 
             # 读取输出的 Markdown 文件
             md_file = output_path / "auto" / f"{path.stem}.md"
@@ -197,6 +221,9 @@ class MinerUDocumentLoader:
             }
         except subprocess.CalledProcessError as e:
             logger.error(f"MinerU 解析失败: {path}, 错误: {e.stderr}")
+            return None
+        except subprocess.TimeoutExpired:
+            logger.error(f"MinerU 解析超时({self.timeout_seconds}s): {path}")
             return None
         except Exception as e:
             logger.error(f"加载文件失败: {path}, 错误: {e}")
