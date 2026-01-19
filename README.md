@@ -16,9 +16,10 @@
 ```
 medical_embedding/
 ├── config/
-│   └── settings.py      # 配置管理
+│   ├── settings.py          # 配置管理
+│   └── training_config.py   # 微调配置
 ├── src/
-│   ├── api.py           # FastAPI 服务
+│   ├── api.py               # FastAPI 服务
 │   ├── document_loader.py
 │   ├── embedder.py
 │   ├── embedding_cache.py
@@ -27,20 +28,32 @@ medical_embedding/
 │   ├── retriever.py
 │   ├── generator.py
 │   ├── pipeline.py
-│   └── health.py
+│   ├── health.py
+│   ├── paper2figure/        # 论文图表生成模块
+│   │   ├── core.py          # Paper2Figure 核心
+│   │   ├── paper2ppt.py     # PPT 生成
+│   │   ├── ppt_polish.py    # PPT 美化
+│   │   └── renderer.py      # 渲染器
+│   └── training/            # Embedding 微调模块
+│       └── data_builder.py  # 训练数据构建
 ├── scripts/
 │   ├── index_documents.py
 │   ├── search.py
-│   ├── evaluate.py           # 检索指标评估
-│   ├── evaluate_deepeval.py  # DeepEval 端到端评估
-│   └── evaluate_mirage.py    # MIRAGE 医学基准评估
+│   ├── evaluate.py              # 检索指标评估
+│   ├── evaluate_deepeval.py     # DeepEval 端到端评估
+│   ├── evaluate_mirage.py       # MIRAGE 医学基准评估
+│   ├── finetune_embedding.py    # Embedding 微调
+│   ├── evaluate_embedding.py    # 微调效果评估
+│   ├── paper2figure.py          # 论文图表生成
+│   └── paper2ppt.py             # PPT 生成
 ├── docker/
 │   └── milvus-standalone.yml
 ├── data/
 │   ├── documents/       # PDF 文件
 │   ├── parsed/          # 解析结果
 │   ├── cache/           # 嵌入缓存
-│   └── evaluation/      # 评估数据集
+│   ├── evaluation/      # 评估数据集
+│   └── training/        # 微调训练数据
 └── tests/
 ```
 
@@ -157,6 +170,59 @@ curl "http://localhost:8000/search?q=高血压治疗&top_k=5"
 
 ```powershell
 pytest tests/ -v
+```
+
+## Embedding 微调
+
+针对医学领域对 Qwen3-Embedding 进行微调，提升专业文献检索效果。
+
+### 1. 准备训练数据
+
+从 PubMedQA、MedQA 等医学数据集构建训练对：
+
+```powershell
+$env:PYTHONPATH = "D:\Project\medical_embedding"
+python -c "from src.training.data_builder import MedicalDataBuilder; MedicalDataBuilder().build_and_save()"
+```
+
+### 2. 运行微调
+
+```powershell
+# 默认配置（RTX 3090 24GB）
+python scripts/finetune_embedding.py
+
+# 自定义参数
+python scripts/finetune_embedding.py \
+    --base-model Qwen/Qwen3-Embedding-8B \
+    --train-file data/training/train.jsonl \
+    --output-dir models/medical-embedding \
+    --batch-size 4 \
+    --epochs 3 \
+    --loss-type mnrl
+```
+
+支持的损失函数：`mnrl`（MultipleNegativesRankingLoss）、`triplet`、`contrastive`
+
+### 3. 评估微调效果
+
+```powershell
+# 评估原始模型
+python scripts/evaluate_embedding.py --model Qwen/Qwen3-Embedding-8B
+
+# 评估微调模型
+python scripts/evaluate_embedding.py --model models/medical-embedding/final
+
+# 对比两个模型
+python scripts/evaluate_embedding.py --compare Qwen/Qwen3-Embedding-8B models/medical-embedding/final
+```
+
+评估指标：Recall@K、MRR@K、NDCG@K
+
+### 4. 使用微调模型
+
+在 `.env` 中配置：
+```env
+EMBEDDING_MODEL=./models/medical-embedding/final
 ```
 
 ## 评估
